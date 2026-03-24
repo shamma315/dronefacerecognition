@@ -8,7 +8,7 @@ import numpy as np
 from torch.utils.data import Dataset 
 import torchvision.transforms as transforms
 from facenet_pytorch import InceptionResnetV1
-
+import pandas as pd
 
 class DroneFaceDataset(Dataset):
     def __init__(self, root_dir, augment=True): 
@@ -79,8 +79,91 @@ def get_embedding(img_path, model_name="DeepFace", detector="retinaface"):
          print(f" Skipped {os.path.basename(img_path)}: {e}")
          return None
     
-def UAV_SPLIT(root_dir, train_ratio=0.8):
-     #splitting dataset 2:UAV_Human dataset folders by identity 
-     #identities: folders with P
-     all_ids = sorted([d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))])
-     np.random.seed(42)
+def bird_SPLIT(root_dir, train_ratio=0.8, val_ratio=0.1):
+    df = pd.read_csv(root_dir)
+    #each source acting as a unique id
+    all_ids = df['source_id'].unique().tolist()
+    np.random.seed(42)
+    np.random.shuffle(all_ids)
+    num_train = int(len(all_ids) * train_ratio)
+    num_val = int(len(all_ids) * val_ratio)
+    train_ids = all_ids[:num_train]
+    val_ids = all_ids[num_train : num_train + num_val]
+    test_ids = all_ids[num_train + num_val:]
+    print(f"training_ids: {len(train_ids)}")
+    print(f"val_ids: {len(val_ids)}")
+    print(f"test_ids: {len(test_ids)}")
+    return train_ids, val_ids, test_ids
+
+class birdsEyeDataset(Dataset):
+     def __init__(self, root_dir, label_dir, selected_ids, df_metadata, augment=True):
+          self.root_dir= root_dir
+          self.label_dir = label_dir
+          
+          #filtering metadata for selected identities
+          self.relevant_metadata = df_metadata[df_metadata['source_id'].isin(selected_ids)]
+          self.image_Files = self.relevant_metadata['filename'].tolist()
+
+          self.id_map = {id_name: i for i, id_name in enumerate(selected_ids)}
+
+          self.transform = transforms.Compose([transforms.Resize((112,112)),
+                                               transforms.ToTensor(),
+                                               transforms.Normalize([0.5], [0.5])])
+
+        #   for idx, class_name in enumerate(self.classes):
+        #        class_folder = os.path.join(root_dir, class_name)
+        #        images = []
+        #        for root, _, files in os.walk(class_folder):
+        #             for f in files: 
+        #                  if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+        #                       images.append(os.path.join(root, f))
+
+        #        if len(images) > max_images_per_id:
+        #             images= np.random.choice(images, max_images_per_id, replace=False)
+        #        for img_path in images: 
+        #             self.image_paths.append(img_path)
+        #             self.labels.append(idx)
+        #   train_transform = transforms.Compose([transforms.Resize((112, 112)), 
+        #                                      transforms.RandomHorizontalFlip(),
+        #                                      transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        #                                      transforms.ToTensor(),
+        #                                      transforms.Normalize(mean=[0.5, 0.5, 0.5],
+        #                                                           std = [0.5, 0.5, 0.5]),
+        #                                     ])
+        #   val_transform = transforms.Compose([transforms.Resize((112, 112)), 
+        #                                     transforms.ToTensor(),
+        #                                      transforms.Normalize(mean=[0.5, 0.5, 0.5],
+        #                                                           std = [0.5, 0.5, 0.5]),])   #to test real performance
+        #   self.transform = train_transform if augment else val_transform
+     def __len__(self):
+          return len(self.image_paths)
+     def __getitem__(self, idx):
+          img_name = self.image_Files[idx]
+          img_path = os.path.join(self.img_dir, img_name)
+          label_path = os.path.join(self.label_dir, img_name.replace('.jpg', '.txt'))
+          full_img = Image.open(img_path).convert('RGB')
+          w,h = full_img.size
+          #For YOLO Image transformations 
+          with open(label_path, 'r') as f: 
+               line= f.readline().split()
+               if not line: return self.__getitem__((idx+1) % len(self))
+               _, x_c, y_c, bw, bh = map(float, line)
+
+        # Convert from YOLO NORMALIZED TO PIXEL COORDINATES
+          left = (x_c - bw/2) * w
+          top = (y_c - bh/2) * h
+          right = (x_c + bw/2) * w
+          bottom = (y_c + bh/2) * h
+
+          face_Crop = full_img.crop((left, top, right, bottom))
+          face_tensor = self.transform(face_Crop)
+
+          #get target ID label 
+          source_id = self.relevant_meta.iloc[idx]['source_id']
+          label = self.id_map[source_id]
+          return face_tensor, label 
+
+
+     
+
+
