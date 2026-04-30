@@ -16,7 +16,7 @@ from PIL import Image
 import torchvision.transforms as transforms
 
 ROOT = Path("/home/buthaina.almulla/Documents/CV7502")
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 from facenet_pytorch import InceptionResnetV1
 from model import Embeddinghead, ArcFaceLoss
 
