@@ -1,0 +1,2 @@
+model,params,embedding_dim,model_size_mb,rank1,rank5
+two_phase,28305847,256,107.98,64.58,92.48

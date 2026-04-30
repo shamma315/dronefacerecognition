@@ -1,0 +1,5 @@
+model,rank1,rank5
+raw_baseline,77.66,95.96
+phase1_only,53.17,88.8
+phase2_only,63.67,89.91
+phase1_phase2,64.58,92.48
