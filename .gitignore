@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Datasets and large archives
+datasets/
+synthetic_identities/
+vggface2.zip
+*.zip
+*.tar
+*.tar.gz
+
+# Model checkpoints / training artifacts
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Training outputs (uncomment if you don't want to track results)
+# results/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Claude Code local settings
+.claude/
