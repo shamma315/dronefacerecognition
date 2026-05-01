@@ -140,7 +140,8 @@ ArcFace s/m differ by phase intentionally: Phase 1 trains on ~480 classes (large
 - **Phase 2 augmentations** (lighter than Phase 1): RandomResizedCrop(112, 0.8–1.0), HorizontalFlip, RandomRotation(20°), GaussianBlur(3), ColorJitter(0.2, 0.2). No RandomErasing or Grayscale.
 
 ## Dataset Download Links: 
-VGGFace2: 
+- VGGFace2: 
 https://www.kaggle.com/datasets/hearfool/vggface2
-DroneFace:
+
+- DroneFace:
 https://www.dropbox.com/s/c9odbl7eckavten/DnHFaces.zip?dl=1
