@@ -9,4 +9,4 @@ FaceNet (CASIA),73.59,75.58,-1.99
 InceptionResnetV1 (raw),76.81,79.26,-2.45
 ArcFace-R50,96.98,95.05,+1.93
 ArcFace-R100,93.15,93.20,-0.05
-Ours (two-phase),79.64,83.53,-3.89
+Ours (two-phase),81.45,83.06,-1.61

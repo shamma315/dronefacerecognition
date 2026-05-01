@@ -24,6 +24,9 @@ vggface2.zip
 checkpoints/
 models/
 
+# Sandbox experiments (one-off retrains, not part of canonical pipeline)
+experiments/
+
 # Reports / paper PDFs
 *.pdf
 

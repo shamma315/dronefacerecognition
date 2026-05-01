@@ -34,10 +34,8 @@ from model import Embeddinghead, ArcFaceLoss
 
 VGG_TRAIN = ROOT / "datasets/vggface2/train"
 VGG_VAL = ROOT / "datasets/vggface2/val"
-CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
-OUT_CKPT = CKPT_DIR / "best_model.pth"
-CURVES = ROOT / "results" / "training_curves"; CURVES.mkdir(parents=True, exist_ok=True)
-METRICS_CSV = CURVES / "phase1_original_per_epoch_metrics.csv"
+DEFAULT_CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
+DEFAULT_CURVES = ROOT / "results" / "training_curves"
 
 BATCH_SIZE = 256
 EPOCHS = 30
@@ -53,13 +51,26 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--force", action="store_true",
                     help="Re-run even if output checkpoint already exists.")
+    ap.add_argument("--output-dir", default=None,
+                    help="Override output directory (writes best_model.pth and "
+                         "phase1_original_per_epoch_metrics.csv there). Default: "
+                         "checkpoints/checkpoints/ + results/training_curves/.")
     args = ap.parse_args()
 
-    if OUT_CKPT.exists() and not args.force:
-        print(f"[skip] {OUT_CKPT} already exists. Pass --force to retrain.", flush=True)
+    if args.output_dir is None:
+        out_ckpt = DEFAULT_CKPT_DIR / "best_model.pth"
+        metrics_csv = DEFAULT_CURVES / "phase1_original_per_epoch_metrics.csv"
+        DEFAULT_CKPT_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_CURVES.mkdir(parents=True, exist_ok=True)
+    else:
+        out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
+        out_ckpt = out_dir / "best_model.pth"
+        metrics_csv = out_dir / "phase1_original_per_epoch_metrics.csv"
+
+    if out_ckpt.exists() and not args.force:
+        print(f"[skip] {out_ckpt} already exists. Pass --force to retrain.", flush=True)
         return 0
 
-    CKPT_DIR.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(SEED); torch.cuda.manual_seed_all(SEED); np.random.seed(SEED)
 
     train_ids = sorted(os.listdir(VGG_TRAIN))
@@ -146,16 +157,16 @@ def main():
                 "epoch": epoch,
                 "val_rank1": r1,
                 "num_classes": n_classes,
-            }, str(OUT_CKPT))
+            }, str(out_ckpt))
             flag = " (best)"
         print(f"epoch {epoch:>2}/{EPOCHS} | loss={train_loss:.4f} | val_R1={r1:.2f}% | "
               f"[{time.time()-t_ep:.1f}s]{flag}", flush=True)
 
-    with open(METRICS_CSV, "w", newline="") as f:
+    with open(metrics_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["epoch", "train_loss", "val_rank1"])
         w.writeheader()
         for r in metrics: w.writerow(r)
-    print(f"wrote {METRICS_CSV}", flush=True)
+    print(f"wrote {metrics_csv}", flush=True)
     print(f"done | best val R1 {best_val_r1:.2f}% | total {(time.time()-t0)/60:.1f}min", flush=True)
     return 0
 

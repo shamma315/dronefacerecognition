@@ -29,11 +29,9 @@ from dataset import DroneFaceDataset
 from model import Embeddinghead, ArcFaceLoss
 
 SPLIT = ROOT / "datasets/droneface/split"
-CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
-PHASE1 = CKPT_DIR / "best_model.pth"
-OUT_CKPT = CKPT_DIR / "best_drone_model_v2.pth"
-RESULTS = ROOT / "results"; RESULTS.mkdir(exist_ok=True)
-CURVES = RESULTS / "training_curves"; CURVES.mkdir(exist_ok=True)
+DEFAULT_CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
+DEFAULT_PHASE1 = DEFAULT_CKPT_DIR / "best_model.pth"
+DEFAULT_CURVES = ROOT / "results" / "training_curves"
 
 BATCH_SIZE = 32
 EPOCHS = 50
@@ -55,13 +53,31 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--force", action="store_true",
                     help="Re-run even if output checkpoint already exists.")
+    ap.add_argument("--phase1-ckpt", default=None,
+                    help="Path to the Phase 1 checkpoint to load. "
+                         "Default: checkpoints/checkpoints/best_model.pth.")
+    ap.add_argument("--output-dir", default=None,
+                    help="Override output directory (writes best_drone_model_v2.pth and "
+                         "phase2_per_epoch_metrics.csv there). "
+                         "Default: checkpoints/checkpoints/ + results/training_curves/.")
     args = ap.parse_args()
 
-    if OUT_CKPT.exists() and not args.force:
-        print(f"[skip] {OUT_CKPT} already exists. Pass --force to retrain.", flush=True)
+    phase1 = Path(args.phase1_ckpt) if args.phase1_ckpt else DEFAULT_PHASE1
+    if args.output_dir is None:
+        out_ckpt = DEFAULT_CKPT_DIR / "best_drone_model_v2.pth"
+        metrics_csv = DEFAULT_CURVES / "phase2_per_epoch_metrics.csv"
+        DEFAULT_CKPT_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_CURVES.mkdir(parents=True, exist_ok=True)
+    else:
+        out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
+        out_ckpt = out_dir / "best_drone_model_v2.pth"
+        metrics_csv = out_dir / "phase2_per_epoch_metrics.csv"
+
+    if out_ckpt.exists() and not args.force:
+        print(f"[skip] {out_ckpt} already exists. Pass --force to retrain.", flush=True)
         return 0
-    if not PHASE1.exists():
-        print(f"[error] missing Phase 1 checkpoint {PHASE1}. "
+    if not phase1.exists():
+        print(f"[error] missing Phase 1 checkpoint {phase1}. "
               f"Run scripts/phase1_original.py first.", flush=True)
         return 1
 
@@ -81,8 +97,8 @@ def main():
     arcface = ArcFaceLoss(in_features=256, num_classes=n_classes,
                           scale=ARCFACE_SCALE, margin=ARCFACE_MARGIN).to(DEVICE)
 
-    print(f"loading Phase 1 checkpoint from {PHASE1}", flush=True)
-    ckpt = torch.load(str(PHASE1), map_location=DEVICE)
+    print(f"loading Phase 1 checkpoint from {phase1}", flush=True)
+    ckpt = torch.load(str(phase1), map_location=DEVICE)
     backbone.load_state_dict(ckpt["backbone"])
     head.load_state_dict(ckpt["head"])
 
@@ -187,18 +203,17 @@ def main():
                 "arcface": arcface.state_dict(),
                 "epoch": epoch,
                 "val_rank1": va,
-            }, str(OUT_CKPT))
+            }, str(out_ckpt))
             flag = " (best)"
         print(f"epoch {epoch:>2}/{EPOCHS} | loss={train_loss:.4f} | "
               f"tr_R1={tr:.1f}% va_R1={va:.1f}% ho_R1={ho:.1f}% | "
               f"[{time.time()-t_ep:.1f}s]{flag}", flush=True)
 
-    csv_path = CURVES / "phase2_per_epoch_metrics.csv"
-    with open(csv_path, "w", newline="") as f:
+    with open(metrics_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["epoch","train_loss","train_rank1","val_rank1","heldout_rank1"])
         w.writeheader()
         for r in metrics: w.writerow(r)
-    print(f"wrote {csv_path}", flush=True)
+    print(f"wrote {metrics_csv}", flush=True)
     print(f"done | best val R1 {best_val_r1:.2f}% | total {(time.time()-t0)/60:.1f}min", flush=True)
     return 0
 

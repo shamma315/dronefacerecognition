@@ -9,4 +9,4 @@ FaceNet (CASIA),28907599,512,110.618,CASIA-WebFace,Triplet,74.85,96.92
 InceptionResnetV1 (raw),27910327,512,106.813,VGGFace2,Triplet (no fine-tune),78.37,96.19
 ArcFace-R50,43600000,512,166.305,WebFace600K,ArcFace,95.75,98.68
 ArcFace-R100,65000000,512,248.59,Glint360K,ArcFace,93.18,99.05
-Ours (two-phase),27910327,256,107.985,VGGFace2 + DroneFace (fine-tuned),ArcFace (FT),82.11,97.73
+Ours (two-phase),27910327,256,107.985,VGGFace2 + DroneFace (fine-tuned),ArcFace (FT),82.48,97.58
