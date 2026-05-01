@@ -138,3 +138,9 @@ ArcFace s/m differ by phase intentionally: Phase 1 trains on ~480 classes (large
 - **LOO eval protocol:** trained models use `Normalize([0.5]*3, [0.5]*3)` (matches training-time preprocessing); the raw VGGFace2 baseline uses no Normalize (matches `facenet-pytorch` convention). L2 normalization is applied at match time on centroids and queries — not on per-image embeddings before centroid averaging.
 - **Identity-disjoint split:** A–H train (8 ids), I validation (1 id), J,K held-out test (2 ids). The model never sees images of I/J/K during gradient steps.
 - **Phase 2 augmentations** (lighter than Phase 1): RandomResizedCrop(112, 0.8–1.0), HorizontalFlip, RandomRotation(20°), GaussianBlur(3), ColorJitter(0.2, 0.2). No RandomErasing or Grayscale.
+
+## Dataset Download Links: 
+VGGFace2: 
+https://www.kaggle.com/datasets/hearfool/vggface2
+DroneFace:
+https://www.dropbox.com/s/c9odbl7eckavten/DnHFaces.zip?dl=1
