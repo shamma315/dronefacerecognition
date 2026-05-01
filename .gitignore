@@ -20,13 +20,6 @@ vggface2.zip
 *.tar
 *.tar.gz
 
-# Model checkpoints / training artifacts
-checkpoints/
-*.pt
-*.pth
-*.ckpt
-*.safetensors
-
 # Training outputs (uncomment if you don't want to track results)
 # results/
 
