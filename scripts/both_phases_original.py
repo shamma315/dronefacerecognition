@@ -1,13 +1,14 @@
-"""both_phases_synth — Phase 2 fine-tune from the synth-augmented Phase 1
-checkpoint (best_model_synth.pth) on DroneFace train identities A-H.
+"""both_phases_original — Phase 2 fine-tune from the original (no-synth)
+Phase 1 checkpoint best_model.pth on DroneFace train identities A-H.
 
-Same hyperparameters as phase2_only_original.py and phase2_only_synth.py so
-the ablation isolates the variable of interest:
+This is the canonical "two-phase" pipeline that was originally inline in
+training_v2.ipynb. Same hyperparameters as phase2_only_*.py and
+phase2_from_synth.py so the ablation isolates the variable of interest:
   Adam, batch 32, backbone lr=1e-6, head/ArcFace lr=1e-4, ArcFace s=32 m=0.3.
   50 epochs, cosine annealed to 1e-7.
   Unfreezes block8 + avgpool_1a + last_linear + last_bn.
 
-Saves best-by-val-Rank-1 to best_drone_model_synth_v2.pth.
+Saves best-by-val-Rank-1 to best_drone_model_v2.pth.
 
 Idempotent: skip if output exists unless --force is passed.
 """
@@ -29,8 +30,8 @@ from model import Embeddinghead, ArcFaceLoss
 
 SPLIT = ROOT / "datasets/droneface/split"
 CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
-PHASE1_SYNTH = CKPT_DIR / "best_model_synth.pth"
-OUT_CKPT = CKPT_DIR / "best_drone_model_synth_v2.pth"
+PHASE1 = CKPT_DIR / "best_model.pth"
+OUT_CKPT = CKPT_DIR / "best_drone_model_v2.pth"
 RESULTS = ROOT / "results"; RESULTS.mkdir(exist_ok=True)
 CURVES = RESULTS / "training_curves"; CURVES.mkdir(exist_ok=True)
 
@@ -59,6 +60,10 @@ def main():
     if OUT_CKPT.exists() and not args.force:
         print(f"[skip] {OUT_CKPT} already exists. Pass --force to retrain.", flush=True)
         return 0
+    if not PHASE1.exists():
+        print(f"[error] missing Phase 1 checkpoint {PHASE1}. "
+              f"Run scripts/phase1_original.py first.", flush=True)
+        return 1
 
     torch.manual_seed(SEED); torch.cuda.manual_seed_all(SEED); np.random.seed(SEED)
     torch.backends.cudnn.deterministic = True
@@ -74,14 +79,12 @@ def main():
         for p in blk.parameters(): p.requires_grad = True
     head = Embeddinghead(input_dim=512, Embedding_dim=256).to(DEVICE)
     arcface = ArcFaceLoss(in_features=256, num_classes=n_classes,
-                           scale=ARCFACE_SCALE, margin=ARCFACE_MARGIN).to(DEVICE)
+                          scale=ARCFACE_SCALE, margin=ARCFACE_MARGIN).to(DEVICE)
 
-    print(f"loading Phase 1 (synth) checkpoint from {PHASE1_SYNTH}", flush=True)
-    ckpt = torch.load(str(PHASE1_SYNTH), map_location=DEVICE)
+    print(f"loading Phase 1 checkpoint from {PHASE1}", flush=True)
+    ckpt = torch.load(str(PHASE1), map_location=DEVICE)
     backbone.load_state_dict(ckpt["backbone"])
     head.load_state_dict(ckpt["head"])
-    print(f"  Phase 1 was trained on {ckpt.get('num_classes','?')} classes, "
-          f"best val R1 {ckpt.get('val_rank1','?')}", flush=True)
 
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True,
                               num_workers=4, pin_memory=True)
@@ -190,7 +193,7 @@ def main():
               f"tr_R1={tr:.1f}% va_R1={va:.1f}% ho_R1={ho:.1f}% | "
               f"[{time.time()-t_ep:.1f}s]{flag}", flush=True)
 
-    csv_path = CURVES / "phase2_synth_per_epoch_metrics.csv"
+    csv_path = CURVES / "phase2_per_epoch_metrics.csv"
     with open(csv_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["epoch","train_loss","train_rank1","val_rank1","heldout_rank1"])
         w.writeheader()

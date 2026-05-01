@@ -1,0 +1,12 @@
+model,params,embedding_dim,size_mb,training_data,loss_family,rank1_acc,rank5_acc
+LBPH,0,16384,0.0,—,Classical (LBP),88.86,98.09
+SFace,1100000,128,36.904,MS-Celeb-1M (refined),Sigmoid hypersphere,56.96,88.34
+MobileFaceNet,1200000,512,12.985,WebFace600K,ArcFace,92.74,98.68
+MobileFaceNet (INT8),1200000,512,3.363,WebFace600K,ArcFace (quantized),90.98,98.46
+ArcFace-IResNet18,24025600,512,91.761,MS1MV2,ArcFace,74.05,96.11
+FaceNet (VGGFace2),27910327,512,106.813,VGGFace2,Triplet,78.37,96.19
+FaceNet (CASIA),28907599,512,110.618,CASIA-WebFace,Triplet,74.85,96.92
+InceptionResnetV1 (raw),27910327,512,106.813,VGGFace2,Triplet (no fine-tune),78.37,96.19
+ArcFace-R50,43600000,512,166.305,WebFace600K,ArcFace,95.75,98.68
+ArcFace-R100,65000000,512,248.59,Glint360K,ArcFace,93.18,99.05
+Ours (two-phase),27910327,256,107.985,VGGFace2 + DroneFace (fine-tuned),ArcFace (FT),82.11,97.73

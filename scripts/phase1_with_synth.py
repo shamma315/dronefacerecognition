@@ -1,11 +1,13 @@
-"""Phase 1 retraining: VGGFace2 (540 ids) + 30 synthetic identities = 570 classes.
+"""phase1_only_synth — Phase 1 on VGGFace2 (~480 train ids) + 30 synthetic
+identities (570 classes total).
 
-Same hyperparameters as the original Phase 1 in training_fixed.ipynb cell 9 (Adam,
-batch 256, 30 epochs, backbone lr=1e-5, head/ArcFace lr=1e-4, CosineAnnealing).
-Saves a checkpoint every 10 epochs (so an interruption doesn't cost everything).
-Best-by-val-Rank-1 model lands at checkpoints/checkpoints/best_model_synth.pth.
+Same Phase 1 hyperparameters as phase1_original.py (Adam, batch 256, 30 epochs,
+backbone lr=1e-5, head/ArcFace lr=1e-4, ArcFace s=64 m=0.5, CosineAnnealing).
+Saves an intermediate checkpoint every 10 epochs (so an interruption doesn't
+lose everything) and the best-by-val-Rank-1 model to
+checkpoints/checkpoints/best_model_synth.pth.
 """
-import os, sys, time, random
+import os, sys, time, csv, random
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +28,8 @@ VGG_VAL = ROOT / "datasets/vggface2/val"
 SYNTH = ROOT / "synthetic_identities"
 CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
+CURVES = ROOT / "results" / "training_curves"; CURVES.mkdir(parents=True, exist_ok=True)
+METRICS_CSV = CURVES / "phase1_synth_per_epoch_metrics.csv"
 
 BATCH_SIZE = 256
 EPOCHS = 30
@@ -156,6 +160,7 @@ def main():
     ])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
 
+    metrics = []
     best_val_acc = 0.0
     t0 = time.time()
     for epoch in range(1, EPOCHS + 1):
@@ -224,12 +229,19 @@ def main():
                 "num_classes": full.num_classes,
             }, str(CKPT_DIR / f"phase1_synth_epoch_{epoch:02d}.pth"))
 
+        metrics.append({"epoch": epoch, "train_loss": train_loss, "val_rank1": rank1})
+
         print(
             f"epoch {epoch:>2}/{EPOCHS} | loss={train_loss:.4f} | val_R1={rank1:.2f}% | "
             f"[{time.time()-t_ep:.1f}s, total {(time.time()-t0)/60:.1f}min]{flag}",
             flush=True,
         )
 
+    with open(METRICS_CSV, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["epoch", "train_loss", "val_rank1"])
+        w.writeheader()
+        for r in metrics: w.writerow(r)
+    print(f"wrote {METRICS_CSV}", flush=True)
     print(f"done | best val R1 {best_val_acc:.2f}% | total {(time.time()-t0)/60:.1f}min", flush=True)
 
 

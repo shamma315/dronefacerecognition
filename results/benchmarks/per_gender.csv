@@ -1,0 +1,12 @@
+model,female_n496,male_n868,gap_F_minus_M
+LBPH,87.10,89.86,-2.76
+SFace,54.03,58.64,-4.61
+MobileFaceNet,96.57,90.55,+6.02
+MobileFaceNet (INT8),95.16,88.59,+6.57
+ArcFace-IResNet18,71.57,75.46,-3.89
+FaceNet (VGGFace2),76.81,79.26,-2.45
+FaceNet (CASIA),73.59,75.58,-1.99
+InceptionResnetV1 (raw),76.81,79.26,-2.45
+ArcFace-R50,96.98,95.05,+1.93
+ArcFace-R100,93.15,93.20,-0.05
+Ours (two-phase),79.64,83.53,-3.89

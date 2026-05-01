@@ -1,7 +1,8 @@
 """
 benchmark_recognizers.py
 ------------------------
-Benchmarking pipeline for comparing face RECOGNITION models. All models are pretrained on face recognition datasets
+Benchmarking pipeline for comparing face RECOGNITION models under drone
+hardware constraints. All models are pretrained on face recognition datasets
 (VGGFace2, MS1MV2, WebFace600K, etc.) — not ImageNet.
 
 Detector (UltraFace) stays fixed. Only the recognizer is swapped.
@@ -21,6 +22,9 @@ Usage:
 
     python benchmark_recognizers.py --all --dataset-root open_data_set \\
         --dataset-type droneface
+
+    python benchmark_recognizers.py --all --dataset-root "archive (1)" \\
+        --dataset-type vggface2 --constrained
 """
 
 import os
@@ -134,6 +138,19 @@ def _make_facenet():
     from facenet_pytorch import InceptionResnetV1
     model = InceptionResnetV1(pretrained="vggface2").eval()
     return PyTorchModelWrapper("facenet", model, input_size=160)
+
+
+def _make_inceptionresnet_raw():
+    """
+    Raw InceptionResnetV1 baseline: VGGFace2-pretrained backbone with NO fine-tuning
+    and NO projection head. This is the off-the-shelf 'no-training-of-our-own' baseline
+    that any further-trained variant (e.g. our ArcFace fine-tune) is expected to beat.
+    Functionally identical to _make_facenet() but registered under a separate, clearly
+    named alias for paper-table clarity.
+    """
+    from facenet_pytorch import InceptionResnetV1
+    model = InceptionResnetV1(pretrained="vggface2").eval()
+    return PyTorchModelWrapper("inceptionresnet_raw", model, input_size=160)
 
 
 _INSIGHTFACE_PACKS = {
@@ -362,14 +379,102 @@ def _make_sface():
                             param_count=1100000, use_bgr=False)
 
 
+class LBPHWrapper(ModelWrapper):
+    """
+    Classical LBPH (Local Binary Pattern Histogram) face recognizer from OpenCV.
+    Produces a concatenated histogram feature vector per image, which we treat
+    as an embedding and feed into the same cosine/nearest-centroid evaluator as
+    the deep models. This keeps the protocol consistent across all recognizers.
+
+    No "parameters" in the neural sense — we report a conventional 0 for
+    param_count and 0.0 MB for size (LBPH has no learned weights).
+    """
+
+    def __init__(self, radius=1, neighbors=8, grid_x=8, grid_y=8, input_size=112):
+        super(LBPHWrapper, self).__init__("lbph", input_size)
+        import cv2
+        self._cv2 = cv2
+        self.radius = radius
+        self.neighbors = neighbors
+        self.grid_x = grid_x
+        self.grid_y = grid_y
+        self._param_count = 0
+        self._size_mb = 0.0
+
+    def get_embeddings(self, images_tensor):
+        import numpy as _np
+        import torch as _torch
+        cv2 = self._cv2
+
+        # images_tensor: (B, 3, H, W) RGB float [0, 1]
+        B = images_tensor.size(0)
+        imgs_np = (images_tensor.numpy() * 255.0).astype(_np.uint8)
+        # (B, 3, H, W) -> list of (H, W) grayscale
+        gray_imgs = []
+        for i in range(B):
+            rgb = imgs_np[i].transpose(1, 2, 0)  # (H, W, 3) RGB
+            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+            gray_imgs.append(gray)
+
+        # Train a fresh LBPH recognizer on this batch; getHistograms() returns
+        # one histogram per input image, in the same order.
+        rec = cv2.face.LBPHFaceRecognizer_create(
+            radius=self.radius,
+            neighbors=self.neighbors,
+            grid_x=self.grid_x,
+            grid_y=self.grid_y,
+        )
+        labels = _np.arange(B, dtype=_np.int32)
+        rec.train(gray_imgs, labels)
+        hists = rec.getHistograms()  # list of (1, D) float32 arrays
+
+        feats = _np.stack([h.flatten() for h in hists], axis=0).astype(_np.float32)
+        return _torch.from_numpy(feats)
+
+
+def _make_lbph():
+    """
+    Local Binary Pattern Histogram recognizer (OpenCV classical baseline).
+    No learned weights. Grayscale input at 112x112; feature dim ~16,384
+    (64 grid cells x 256 bins default). Serves as a classical-method baseline
+    against the deep recognizers.
+    """
+    # Sanity check: the face module must be present (opencv-contrib-python).
+    import cv2
+    if not hasattr(cv2, "face") or not hasattr(cv2.face, "LBPHFaceRecognizer_create"):
+        raise RuntimeError(
+            "cv2.face.LBPHFaceRecognizer_create not available. "
+            "Install opencv-contrib-python (same version as opencv-python)."
+        )
+    return LBPHWrapper(input_size=112)
+
+
+def _make_mobilefacenet_int8():
+    """
+    INT8-quantized MobileFaceNet (QDQ ONNX format).
+    Same architecture and contract as the FP32 MobileFaceNet — float32 input,
+    512-dim output — but the weights are quantized to INT8 and quant/dequant
+    happens in-graph. Expected to run faster and smaller than FP32 with some
+    accuracy trade.
+    """
+    onnx_path = os.path.join("weights", "mobilefacenet_int8.onnx")
+    if not os.path.exists(onnx_path):
+        raise RuntimeError("INT8 MobileFaceNet ONNX not found at %s" % onnx_path)
+    return ONNXModelWrapper("mobilefacenet_int8", onnx_path, input_size=112,
+                            param_count=1200000)
+
+
 MODEL_REGISTRY = {
-    "facenet":        (_make_facenet,        "FaceNet InceptionResnetV1 (VGGFace2, ~23.5M params)"),
-    "facenet_casia":  (_make_facenet_casia,  "FaceNet InceptionResnetV1 (CASIA-WebFace, ~23.5M params)"),
-    "mobilefacenet":  (_make_mobilefacenet,  "MobileFaceNet ArcFace (WebFace600K, ~1.2M params)"),
-    "arcface_r18":    (_make_arcface_r18,    "ArcFace IResNet-18 (~24M params)"),
-    "arcface_r50":    (_make_arcface_r50,    "ArcFace ResNet-50 (WebFace600K, ~43M params)"),
-    "arcface_r100":   (_make_arcface_r100,   "ArcFace GlintR100 (Glint360K, ~65M params)"),
-    "sface":          (_make_sface,          "SFace (OpenCV Zoo, ~1.1M params)"),
+    "facenet":              (_make_facenet,              "FaceNet InceptionResnetV1 (VGGFace2, ~23.5M params)"),
+    "facenet_casia":        (_make_facenet_casia,        "FaceNet InceptionResnetV1 (CASIA-WebFace, ~23.5M params)"),
+    "inceptionresnet_raw":  (_make_inceptionresnet_raw,  "Raw InceptionResnetV1 baseline (VGGFace2-pretrained, no fine-tuning, no projection head)"),
+    "mobilefacenet":        (_make_mobilefacenet,        "MobileFaceNet ArcFace (WebFace600K, ~1.2M params)"),
+    "mobilefacenet_int8":   (_make_mobilefacenet_int8,   "MobileFaceNet INT8-quantized (~1.2M params, ~3.4 MB)"),
+    "arcface_r18":          (_make_arcface_r18,          "ArcFace IResNet-18 (~24M params)"),
+    "arcface_r50":          (_make_arcface_r50,          "ArcFace ResNet-50 (WebFace600K, ~43M params)"),
+    "arcface_r100":         (_make_arcface_r100,         "ArcFace GlintR100 (Glint360K, ~65M params)"),
+    "sface":                (_make_sface,                "SFace (OpenCV Zoo, ~1.1M params)"),
+    "lbph":                 (_make_lbph,                 "LBPH classical (OpenCV, no learned weights)"),
 }
 
 
@@ -472,11 +577,21 @@ class DroneFaceDataset(Dataset):
 
 # ── Benchmark engine ─────────────────────────────────────────────────────────
 
-def benchmark_model(wrapped_model, dataset, batch_size=1):
+def benchmark_model(wrapped_model, dataset, batch_size=1, constrained=False,
+                    save_embeddings_dir=None, dataset_name=None):
     """
     Run a recognition model through the dataset in eval mode.
     Works with both PyTorch and ONNX models via ModelWrapper.
+
+    If constrained=True, model inference runs inside DroneInferenceContext
+    (400MHz single core, 128MB RAM delta). Data loading runs at full PC speed.
+
+    If save_embeddings_dir is given, dumps:
+      <dir>/<model>_<dataset>.npy            embeddings (N, D)
+      <dir>/<model>_<dataset>_labels.npy     labels     (N,)
+      <dir>/<model>_<dataset>_filenames.csv  one path per line
     """
+    from drone_constraints import DroneInferenceContext
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
                         num_workers=0)
 
@@ -484,12 +599,25 @@ def benchmark_model(wrapped_model, dataset, batch_size=1):
     all_embeddings = []
     all_labels = []
     latencies_ms = []
+    peak_ram_mb = 0.0
+    peak_delta_ram_mb = 0.0
 
     print("  [bench] Extracting embeddings (%d images)..." % len(dataset))
     for batch_idx, (images, labels) in enumerate(loader):
-        t0 = time.perf_counter()
-        emb = wrapped_model.get_embeddings(images)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        # images loaded at full PC speed — constraint only wraps inference
+        if constrained:
+            ctx = DroneInferenceContext()
+            with ctx:
+                emb = wrapped_model.get_embeddings(images)
+            elapsed_ms = ctx.latency_ms
+            if ctx.peak_ram_mb > peak_ram_mb:
+                peak_ram_mb = ctx.peak_ram_mb
+            if ctx.delta_ram_mb > peak_delta_ram_mb:
+                peak_delta_ram_mb = ctx.delta_ram_mb
+        else:
+            t0 = time.perf_counter()
+            emb = wrapped_model.get_embeddings(images)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         latencies_ms.append(elapsed_ms / images.size(0))
 
@@ -506,6 +634,22 @@ def benchmark_model(wrapped_model, dataset, batch_size=1):
     all_embeddings = torch.cat(all_embeddings, dim=0)
     all_labels = torch.cat(all_labels, dim=0)
 
+    # Optional: persist embeddings for downstream analysis
+    if save_embeddings_dir is not None:
+        os.makedirs(save_embeddings_dir, exist_ok=True)
+        ds_tag = dataset_name or "dataset"
+        emb_path = os.path.join(save_embeddings_dir, "%s_%s.npy" % (wrapped_model.name, ds_tag))
+        lbl_path = os.path.join(save_embeddings_dir, "%s_%s_labels.npy" % (wrapped_model.name, ds_tag))
+        fn_path  = os.path.join(save_embeddings_dir, "%s_%s_filenames.csv" % (wrapped_model.name, ds_tag))
+        np.save(emb_path, all_embeddings.numpy())
+        np.save(lbl_path, all_labels.numpy())
+        with open(fn_path, "w") as fh:
+            fh.write("idx,filename,label\n")
+            for i in range(len(dataset)):
+                path, lbl = dataset.samples[i]
+                fh.write("%d,%s,%d\n" % (i, path, lbl))
+        print("  [bench] Saved embeddings to %s (and _labels.npy / _filenames.csv)" % emb_path)
+
     # Phase 2: Nearest-centroid accuracy (leave-one-out)
     print("  [bench] Computing accuracy (nearest-centroid)...")
     num_classes = len(dataset.classes)
@@ -519,8 +663,9 @@ def benchmark_model(wrapped_model, dataset, batch_size=1):
         class_sums[lbl] += all_embeddings[i]
         class_counts[lbl] += 1
 
-    # Vectorized accuracy computation (MUCH faster than per-sample loop)
-    correct = 0
+    # Vectorized accuracy computation (Rank-1 and Rank-5 leave-one-out)
+    correct_r1 = 0
+    correct_r5 = 0
     for cls_idx in range(num_classes):
         mask = (all_labels == cls_idx)
         cls_embs = all_embeddings[mask]
@@ -558,10 +703,17 @@ def benchmark_model(wrapped_model, dataset, batch_size=1):
 
             emb_norm = F.normalize(cls_embs[i].unsqueeze(0), dim=1)
             sims = torch.mm(emb_norm, all_cents.t()).squeeze(0)
-            if sims.argmax().item() == 0:  # index 0 = this class centroid
-                correct += 1
+            # Rank-1: argmax must be index 0 (true-class LOO centroid)
+            if sims.argmax().item() == 0:
+                correct_r1 += 1
+            # Rank-5: index 0 must be in the top-5 by similarity
+            k = min(5, sims.size(0))
+            _, topk_idx = sims.topk(k)
+            if 0 in topk_idx.tolist():
+                correct_r5 += 1
 
-    accuracy = correct / max(1, total)
+    accuracy = correct_r1 / max(1, total)
+    accuracy_rank5 = correct_r5 / max(1, total)
 
     # Phase 3: Compile
     avg_latency = statistics.mean(latencies_ms)
@@ -572,6 +724,8 @@ def benchmark_model(wrapped_model, dataset, batch_size=1):
 
     result = {
         "accuracy": round(accuracy, 4),
+        "rank1_accuracy": round(accuracy, 4),
+        "rank5_accuracy": round(accuracy_rank5, 4),
         "avg_latency_ms": round(avg_latency, 3),
         "median_latency_ms": round(med_latency, 3),
         "p95_latency_ms": round(p95_latency, 3),
@@ -581,6 +735,9 @@ def benchmark_model(wrapped_model, dataset, batch_size=1):
         "num_samples": total,
         "num_classes": num_classes,
     }
+    if constrained:
+        result["peak_inference_ram_mb"] = round(peak_ram_mb, 1)
+        result["peak_inference_delta_ram_mb"] = round(peak_delta_ram_mb, 1)
     return result
 
 
@@ -719,23 +876,24 @@ def benchmark_droneface_by_condition(wrapped_model, dataset, group_csv=None):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def print_results_table(results):
-    print("\n" + "=" * 95)
+    print("\n" + "=" * 105)
     print("  BENCHMARK RESULTS")
-    print("=" * 95)
-    print("%-22s %8s %10s %10s %8s %10s %12s" % (
-        "Model", "Acc", "Lat(ms)", "P95(ms)", "FPS", "Size(MB)", "Params"))
-    print("-" * 95)
+    print("=" * 105)
+    print("%-22s %8s %8s %10s %10s %8s %10s %12s" % (
+        "Model", "Rank-1", "Rank-5", "Lat(ms)", "P95(ms)", "FPS", "Size(MB)", "Params"))
+    print("-" * 105)
     for name, r in sorted(results.items(), key=lambda x: -x[1]["accuracy"]):
-        print("%-22s %7.2f%% %10.1f %10.1f %8.1f %10.3f %12s" % (
+        print("%-22s %7.2f%% %7.2f%% %10.1f %10.1f %8.1f %10.3f %12s" % (
             name,
             r["accuracy"] * 100,
+            r.get("rank5_accuracy", r["accuracy"]) * 100,
             r["avg_latency_ms"],
             r["p95_latency_ms"],
             r["fps"],
             r["model_size_mb"],
             "{:,}".format(r["parameter_count"]),
         ))
-    print("=" * 95)
+    print("=" * 105)
 
 
 def main():
@@ -761,6 +919,18 @@ def main():
         help="Dataset split for VGG Face2 (default: val). Ignored for DroneFace.",
     )
     parser.add_argument(
+        "--constrained", action="store_true",
+        help="Apply drone hardware constraints before benchmarking.",
+    )
+    parser.add_argument(
+        "--cpu-mhz", type=int, default=None,
+        help="Drone CPU target in MHz (default: 400). Use for CPU ablation.",
+    )
+    parser.add_argument(
+        "--device", default="cpu",
+        help="Device (default: cpu). Only affects PyTorch models.",
+    )
+    parser.add_argument(
         "--output-dir", default="benchmark_results",
         help="Directory to write JSON results.",
     )
@@ -768,10 +938,20 @@ def main():
         "--group-csv", default="droneface_groups.csv",
         help="CSV mapping DroneFace subject -> group attributes (gender, etc.).",
     )
+    parser.add_argument(
+        "--save-embeddings-dir", default=None,
+        help="If set, saves per-(model,dataset) embeddings/labels/filenames here.",
+    )
     args = parser.parse_args()
 
     if not args.model and not args.all:
         parser.error("Specify --model or --all")
+
+    if args.constrained:
+        from drone_constraints import print_constraint_summary, set_drone_cpu_mhz
+        if args.cpu_mhz is not None:
+            set_drone_cpu_mhz(args.cpu_mhz)
+        print_constraint_summary()
 
     model_names = list(MODEL_REGISTRY.keys()) if args.all else [args.model]
 
@@ -805,11 +985,21 @@ def main():
 
         print("[bench] %d images, %d identities" % (len(dataset), len(dataset.classes)))
 
-        result = benchmark_model(wrapped_model, dataset)
+        result = benchmark_model(
+            wrapped_model, dataset,
+            constrained=args.constrained,
+            save_embeddings_dir=args.save_embeddings_dir,
+            dataset_name=args.dataset_type,
+        )
         result["model_name"] = model_name
         result["description"] = desc
         result["dataset"] = args.dataset_type
+        result["constrained"] = args.constrained
         result["input_size"] = input_size
+        if args.constrained:
+            from drone_constraints import DRONE_CPU_MHZ, DRONE_RAM_MB
+            result["cpu_mhz_target"] = DRONE_CPU_MHZ
+            result["ram_mb_limit"] = DRONE_RAM_MB
 
         if args.dataset_type == "droneface":
             print("  [bench] Computing per-condition breakdown...")
@@ -834,7 +1024,12 @@ def main():
 
         all_results[model_name] = result
 
-        fname = "bench_%s_%s.json" % (model_name, args.dataset_type)
+        if args.constrained:
+            from drone_constraints import DRONE_CPU_MHZ
+            suffix = "constrained_%dmhz" % DRONE_CPU_MHZ
+        else:
+            suffix = "unconstrained"
+        fname = "bench_%s_%s_%s.json" % (model_name, args.dataset_type, suffix)
         with open(str(out_dir / fname), "w") as f:
             json.dump(result, f, indent=2)
         print("  [bench] Saved: %s" % (out_dir / fname))
@@ -842,7 +1037,13 @@ def main():
     if all_results:
         print_results_table(all_results)
 
-        combined_path = out_dir / ("benchmark_combined_%s.json" % args.dataset_type)
+        if args.constrained:
+            from drone_constraints import DRONE_CPU_MHZ
+            suffix = "constrained_%dmhz" % DRONE_CPU_MHZ
+        else:
+            suffix = "unconstrained"
+        combined_path = out_dir / ("benchmark_combined_%s_%s.json" % (
+            args.dataset_type, suffix))
         with open(str(combined_path), "w") as f:
             json.dump(all_results, f, indent=2)
         print("[bench] Combined results: %s" % combined_path)

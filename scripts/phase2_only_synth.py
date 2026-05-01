@@ -1,13 +1,18 @@
-"""both_phases_synth — Phase 2 fine-tune from the synth-augmented Phase 1
-checkpoint (best_model_synth.pth) on DroneFace train identities A-H.
+"""Phase 2 only with synth — fine-tune from raw VGGFace2 backbone (no Phase 1
+pretrain), on DroneFace 8 train identities (A-H) + 30 synthetic identities
+mixed in as additional training classes (38 total in the ArcFace head).
 
-Same hyperparameters as phase2_only_original.py and phase2_only_synth.py so
-the ablation isolates the variable of interest:
-  Adam, batch 32, backbone lr=1e-6, head/ArcFace lr=1e-4, ArcFace s=32 m=0.3.
-  50 epochs, cosine annealed to 1e-7.
-  Unfreezes block8 + avgpool_1a + last_linear + last_bn.
+Same hyperparameters as phase2_only_original.py and phase2_from_synth.py:
+  Adam, batch 32, backbone lr=1e-6, head/ArcFace lr=1e-4
+  ArcFace s=32 m=0.3, 50 epochs, cosine annealed to 1e-7
+  Unfreezes block8 + avgpool_1a + last_linear + last_bn
 
-Saves best-by-val-Rank-1 to best_drone_model_synth_v2.pth.
+Synth images use the same DroneFace train_transform (RandomResizedCrop 112,
+flip, rotation, blur, color jitter) so the augmentation policy is identical
+across synth and DroneFace samples.
+
+Saves best-by-val-Rank-1 (val measured on DroneFace identity I only — synth
+identities have no eval split) to checkpoints/checkpoints/best_drone_model_phase2only_synth.pth.
 
 Idempotent: skip if output exists unless --force is passed.
 """
@@ -17,20 +22,19 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 from PIL import Image
 
 ROOT = Path("/home/buthaina.almulla/Documents/CV7502")
 sys.path.insert(0, str(ROOT / "src"))
 from facenet_pytorch import InceptionResnetV1
-from dataset import DroneFaceDataset
 from model import Embeddinghead, ArcFaceLoss
 
 SPLIT = ROOT / "datasets/droneface/split"
+SYNTH = ROOT / "synthetic_identities"
 CKPT_DIR = ROOT / "checkpoints" / "checkpoints"
-PHASE1_SYNTH = CKPT_DIR / "best_model_synth.pth"
-OUT_CKPT = CKPT_DIR / "best_drone_model_synth_v2.pth"
+OUT_CKPT = CKPT_DIR / "best_drone_model_phase2only_synth.pth"
 RESULTS = ROOT / "results"; RESULTS.mkdir(exist_ok=True)
 CURVES = RESULTS / "training_curves"; CURVES.mkdir(exist_ok=True)
 
@@ -49,6 +53,63 @@ VAL_IDS = ["I"]
 HELDOUT_IDS = ["J","K"]
 
 
+# Same train/val transforms as DroneFaceDataset so synth + drone images get
+# identical augmentation.
+TRAIN_TFM = transforms.Compose([
+    transforms.RandomResizedCrop(112, scale=(0.8, 1.0)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(20),
+    transforms.GaussianBlur(kernel_size=3),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5]*3, [0.5]*3),
+])
+
+
+class DroneSynthMixedDataset(Dataset):
+    """DroneFace train identities (A-H) + synthetic_identities/identity_NNN combined.
+
+    Class layout: 0..7 = A..H, 8..N = synth identities in sorted order.
+    """
+    def __init__(self):
+        self.image_paths = []
+        self.labels = []
+        self.classes = []
+
+        # DroneFace train (A-H), in sorted order
+        for ident in TRAIN_IDS:
+            folder = SPLIT / "train" / ident
+            cls_idx = len(self.classes)
+            self.classes.append(ident)
+            for fn in sorted(os.listdir(folder)):
+                if fn.lower().endswith((".jpg", ".jpeg", ".png")):
+                    self.image_paths.append(str(folder / fn))
+                    self.labels.append(cls_idx)
+
+        # Synth identities, in sorted order
+        if SYNTH.exists():
+            synth_ids = sorted(d for d in os.listdir(SYNTH)
+                               if (SYNTH / d).is_dir())
+            for sid in synth_ids:
+                folder = SYNTH / sid
+                cls_idx = len(self.classes)
+                self.classes.append(sid)
+                for fn in sorted(os.listdir(folder)):
+                    if fn.lower().endswith((".jpg", ".jpeg", ".png")):
+                        self.image_paths.append(str(folder / fn))
+                        self.labels.append(cls_idx)
+
+        self._n_drone = sum(1 for p in self.image_paths if "/datasets/droneface/" in p)
+        self._n_synth = len(self.image_paths) - self._n_drone
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, i):
+        img = Image.open(self.image_paths[i]).convert("RGB")
+        return TRAIN_TFM(img), self.labels[i]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -64,9 +125,10 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    train_set = DroneFaceDataset(str(SPLIT / "train"), augment=True)
+    train_set = DroneSynthMixedDataset()
     n_classes = len(train_set.classes)
-    assert train_set.classes == TRAIN_IDS
+    print(f"train set: {len(train_set)} images across {n_classes} classes "
+          f"({train_set._n_drone} DroneFace + {train_set._n_synth} synthetic)", flush=True)
 
     backbone = InceptionResnetV1(pretrained="vggface2").to(DEVICE)
     for p in backbone.parameters(): p.requires_grad = False
@@ -74,14 +136,7 @@ def main():
         for p in blk.parameters(): p.requires_grad = True
     head = Embeddinghead(input_dim=512, Embedding_dim=256).to(DEVICE)
     arcface = ArcFaceLoss(in_features=256, num_classes=n_classes,
-                           scale=ARCFACE_SCALE, margin=ARCFACE_MARGIN).to(DEVICE)
-
-    print(f"loading Phase 1 (synth) checkpoint from {PHASE1_SYNTH}", flush=True)
-    ckpt = torch.load(str(PHASE1_SYNTH), map_location=DEVICE)
-    backbone.load_state_dict(ckpt["backbone"])
-    head.load_state_dict(ckpt["head"])
-    print(f"  Phase 1 was trained on {ckpt.get('num_classes','?')} classes, "
-          f"best val R1 {ckpt.get('val_rank1','?')}", flush=True)
+                          scale=ARCFACE_SCALE, margin=ARCFACE_MARGIN).to(DEVICE)
 
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True,
                               num_workers=4, pin_memory=True)
@@ -184,13 +239,14 @@ def main():
                 "arcface": arcface.state_dict(),
                 "epoch": epoch,
                 "val_rank1": va,
+                "num_classes": n_classes,
             }, str(OUT_CKPT))
             flag = " (best)"
         print(f"epoch {epoch:>2}/{EPOCHS} | loss={train_loss:.4f} | "
               f"tr_R1={tr:.1f}% va_R1={va:.1f}% ho_R1={ho:.1f}% | "
               f"[{time.time()-t_ep:.1f}s]{flag}", flush=True)
 
-    csv_path = CURVES / "phase2_synth_per_epoch_metrics.csv"
+    csv_path = CURVES / "phase2only_synth_per_epoch_metrics.csv"
     with open(csv_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["epoch","train_loss","train_rank1","val_rank1","heldout_rank1"])
         w.writeheader()

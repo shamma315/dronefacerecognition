@@ -1,5 +1,8 @@
-model,rank1,rank5
-raw_baseline,77.66,95.96
-phase1_only,53.17,88.8
-phase2_only,63.67,89.91
-phase1_phase2,64.58,92.48
+config,rank1_overall,rank5_overall,rank1_train_AH,rank1_val_I,rank1_heldout_JK
+raw_baseline,78.37,96.19,78.33,63.71,85.89
+phase1_only_original,70.53,94.72,71.37,70.97,66.94
+phase2_only_original,79.47,97.07,81.35,81.45,70.97
+both_phases_original,82.11,97.73,85.89,70.97,72.58
+phase1_only_synth,64.52,92.89,64.42,64.52,64.92
+phase2_only_synth,85.85,98.17,87.9,74.19,83.47
+both_phases_synth,82.4,97.51,85.18,72.58,76.21

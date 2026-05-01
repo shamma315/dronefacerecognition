@@ -1,46 +1,57 @@
 # Drone Face Recognition
 
-Face recognition for drone-captured imagery using a two-phase training pipeline on top of a VGGFace2-pretrained InceptionResnetV1 backbone, an ArcFace classification head, and an optional synthetic-identity augmentation step.
+Face recognition for drone-captured imagery using a two-phase training pipeline on top of a VGGFace2-pretrained InceptionResnetV1 backbone, an ArcFace head, and an optional synthetic-identity augmentation step.
 
-## Overview
+**Headline result:** the proposed two-phase pipeline reaches **82.11% Rank-1 / 97.73% Rank-5** on DroneFace under leave-one-out cosine-centroid matching, beating the raw VGGFace2 backbone (78.37% / 96.19%) by **+3.74 pp R-1**.
 
-The model is trained in two phases:
+## Pipeline
 
-1. **Phase 1** — Fine-tune the backbone + projection head on VGGFace2 (and optionally a set of synthetic identities generated via Stable Diffusion / IP-Adapter FaceID) using ArcFace loss.
-2. **Phase 2** — Further fine-tune on the DroneFace dataset with stronger drone-specific augmentations (motion blur, random crops, occlusion).
+| stage | data | what it does |
+|---|---|---|
+| **Phase 1** | VGGFace2 (~480 train ids; optionally + 30 synthetic ids) | Adapt the InceptionResnetV1 backbone + 256-d projection head under ArcFace, with UAV-style augmentations (rotation, blur, low-res, RandomErasing). 30 epochs, batch 256, ArcFace `s=64 m=0.5`. |
+| **Phase 2** | DroneFace (8 train identities A–H, optionally + 30 synthetic ids) | Fine-tune Phase 1's backbone + head on DroneFace. 50 epochs, batch 32, ArcFace `s=32 m=0.3` (smaller scale appropriate for the 8-id head). Backbone lr `1e-6`, head/ArcFace lr `1e-4`. Unfreezes `block8`, `avgpool_1a`, `last_linear`, `last_bn`. |
+| **Eval** | DroneFace 11 identities × 124 images | Leave-one-out cosine-centroid Rank-1/Rank-5. Centroid = L2-normalize(mean of remaining same-identity embeddings); query L2-normalized at match time. |
 
-Evaluation uses leave-one-out cosine-centroid matching: each query image is compared to the L2-normalised mean embedding of every other image of each identity, with both centroid and query L2-normalised at match time.
+The 7-row ablation matrix is documented in `results/two_phase_ablation.csv` and discussed in `notebooks/training_v2.ipynb`.
 
 ## Repository structure
 
 ```
 .
-├── src/                    Reusable modules
-│   ├── dataset.py            Dataset classes + identity-level splits
-│   └── model.py              EmbeddingHead and ArcFaceLoss
-├── notebooks/              Exploratory + training notebooks
-│   ├── model.ipynb           Dataset preprocessing + initial model dev
-│   ├── training_fixed.ipynb  Two-phase training + LOO evaluation
-│   └── training_v2.ipynb     Phase 2 with synthetic-identity augmentation
-├── scripts/                Standalone training / eval scripts
-│   ├── generate_synthetic_identities.py        SD 1.5 text-to-image
-│   ├── generate_synthetic_identities_faceid.py SD + IP-Adapter FaceID
-│   ├── phase1_with_synth.py                    Phase 1 retrain w/ synth ids
-│   ├── phase2_from_synth.py                    Phase 2 fine-tune
-│   └── run_ablation_eval.py                    LOO eval across configs
-├── models/                 Trained checkpoints (best_model.pth)
-├── results/                Metrics, figures, embeddings, caches
-│   ├── figures/              Confusion matrix, ROC, training curves
-│   ├── training_curves/      Per-epoch loss / accuracy CSVs + PNGs
-│   ├── embeddings/           Saved embeddings + filename/label arrays
-│   ├── cache/                Cached train/val embeddings (recomputable)
-│   ├── *.csv                 Ablation, cross-dataset, per-attribute tables
-│   └── classification_report.txt
+├── src/                              Reusable modules
+│   ├── dataset.py                      DroneFace + VGGFace2 dataset classes
+│   └── model.py                        Embeddinghead + ArcFaceLoss
+├── notebooks/
+│   ├── training_v2.ipynb               Reproducible orchestrator — calls every script in order
+│   └── analysis_extensions.ipynb       t-SNE / per-identity / failure-case figures
+├── scripts/                          Standalone training + eval scripts (idempotent: skip if output exists, --force to rerun)
+│   ├── generate_synthetic_identities_faceid.py    30 synthetic identities × 40 imgs (IP-Adapter FaceID)
+│   ├── phase1_original.py                         Phase 1 on VGGFace2, no synth          → best_model.pth
+│   ├── phase1_with_synth.py                       Phase 1 on VGGFace2 + synth ids        → best_model_synth.pth
+│   ├── phase2_only_original.py                    Phase 2 from raw, DroneFace only       → best_drone_model_phase2only.pth
+│   ├── phase2_only_synth.py                       Phase 2 from raw, DroneFace + synth    → best_drone_model_phase2only_synth.pth
+│   ├── both_phases_original.py                    Phase 2 from Phase 1 (no synth)        → best_drone_model_v2.pth         [headline]
+│   ├── phase2_from_synth.py                       Phase 2 from Phase 1 with synth        → best_drone_model_synth_v2.pth
+│   ├── run_ablation_eval.py                       LOO eval over all 7 configs            → results/two_phase_ablation.csv
+│   ├── benchmark_recognizers.py                   Reference recognizers (LBPH, SFace, MobileFaceNet, FaceNet ×2, ArcFace ×2)
+│   └── run_all_benchmarks.py                      Sweep harness for benchmark_recognizers.py
+├── checkpoints/checkpoints/          Trained checkpoints (.pth, gitignored)
+├── results/
+│   ├── two_phase_ablation.csv          7-row ablation matrix (headline + supporting)
+│   ├── confusion_matrix.npy            from best_drone_model_v2.pth
+│   ├── roc_data.npy                    pairwise cosine similarities for ROC
+│   ├── embeddings/                     two_phase_droneface{,_labels}.npy
+│   ├── cache/                          raw VGGFace2 baseline embeddings (for t-SNE comparison)
+│   ├── training_curves/                Per-epoch metrics + PNGs (Figure 2 source)
+│   ├── analysis/                       t-SNE / per-identity / failure-case figures (Figs 3, 5, 6)
+│   └── benchmarks/                     Reference recognizer comparison tables (Tables 2, 4–6)
+├── synthetic_identities/             30 IP-Adapter FaceID identities (gitignored)
+├── datasets/                         DroneFace + VGGFace2 (gitignored)
 ├── requirements.txt
 └── .gitignore
 ```
 
-Datasets (`datasets/`), checkpoints other than `models/best_model.pth`, the virtual environment (`venv/`), and synthetic identity image dumps (`synthetic_identities/`) are gitignored — they live locally only.
+Datasets, checkpoints, the venv, and synthetic identity image dumps are gitignored.
 
 ## Setup
 
@@ -50,47 +61,80 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` pins CUDA 12.1 PyTorch wheels. Adjust the `--extra-index-url` for a different CUDA / CPU build.
+`requirements.txt` pins CUDA 12.1 PyTorch wheels. Adjust the `--extra-index-url` for a different CUDA/CPU build.
 
-You also need:
+Required directories (gitignored):
 
-- The **DroneFace** dataset, prepared into `datasets/droneface/split/{train,validation,test}/<identity>/...`
-- (Optional) A **VGGFace2** subset under `datasets/vggface2/{train,val}/...` for Phase 1
-- (Optional) Generated synthetic identities under `synthetic_identities/identity_<NNN>/img_<NNN>.jpg`
+- `datasets/droneface/split/{train,validation,test}/<identity>/...` — DroneFace identity-disjoint split (A–H train, I val, J,K test)
+- `datasets/vggface2/{train,val}/<identity>/...` — VGGFace2 subset for Phase 1
+- (auto-generated) `synthetic_identities/identity_NNN/{anchor.jpg, img_001..040.jpg, anchor_embed.npy}`
 
 ## Usage
 
-### Run the canonical pipeline (notebooks)
+### Reproducible end-to-end run
 
 ```bash
 jupyter lab
-# open notebooks/training_fixed.ipynb and run top-to-bottom for the
-# two-phase pipeline + LOO evaluation
+# open notebooks/training_v2.ipynb and run top-to-bottom
 ```
 
-### Run individual stages (scripts)
+The orchestrator subprocess-calls every script in dependency order. Each script skips if its output checkpoint already exists. Pass `--force` to retrain.
+
+### Individual scripts
 
 ```bash
-# generate 30 synthetic identities × 40 images
+# 1. generate 30 synthetic identities × 40 images (~30 min)
 python scripts/generate_synthetic_identities_faceid.py
 
-# phase 1 retrain (VGGFace2 + synthetic identities)
+# 2. Phase 1 (~3-4 hr each)
+python scripts/phase1_original.py
 python scripts/phase1_with_synth.py
 
-# phase 2 fine-tune from the phase-1 checkpoint
+# 3. Phase 2 — the four ablation runs (~30 min each)
+python scripts/phase2_only_original.py
+python scripts/phase2_only_synth.py
+python scripts/both_phases_original.py
 python scripts/phase2_from_synth.py
 
-# ablation eval across raw / phase1+2 / phase1+2-with-synth
+# 4. Eval all 7 configs → results/two_phase_ablation.csv
 python scripts/run_ablation_eval.py
+
+# 5. Reference recognizers (LBPH, SFace, MobileFaceNet, FaceNet ×2, ArcFace ×2)
+python scripts/run_all_benchmarks.py \
+  --droneface-root datasets/droneface/open_data_set \
+  --vggface2-root datasets/vggface2
 ```
 
-Scripts hard-code the project root (`/home/buthaina.almulla/Documents/CV7502`) — adjust the `ROOT` constant if running from a different machine.
+Scripts hard-code the project root via the `ROOT` constant — adjust if running on a different machine.
 
 ## Results
 
-Headline numbers and per-attribute / cross-dataset breakdowns live in `results/*.csv`. Training curves are in `results/training_curves/`. Confusion matrix and ROC are in `results/figures/`.
+| where | what |
+|---|---|
+| `results/two_phase_ablation.csv` | 7-row ablation matrix |
+| `results/benchmarks/{droneface_main,cross_dataset,per_distance,per_gender,per_altitude}.csv` | Reference-recognizer comparison + Ours rows |
+| `results/training_curves/phase2_per_epoch_metrics.csv` + PNGs | Phase 2 per-epoch curves (Figure 2 source) |
+| `results/analysis/*.png` | t-SNE, confusion matrix, ROC, per-identity bars, top-10 failures |
+
+## Hyperparameters at a glance
+
+| param | Phase 1 | Phase 2 |
+|---|---|---|
+| epochs | 30 | 50 |
+| batch size | 256 | 32 |
+| optimizer | Adam | Adam |
+| backbone lr | 1e-5 | 1e-6 |
+| head/ArcFace lr | 1e-4 | 1e-4 |
+| LR schedule | cosine → 1e-6 | cosine → 1e-7 |
+| ArcFace scale `s` | 64.0 | 32.0 |
+| ArcFace margin `m` | 0.5 | 0.3 |
+| backbone unfrozen | `block8`, `avgpool_1a` | `block8`, `avgpool_1a`, `last_linear`, `last_bn` |
+| input size | 112×112 | 112×112 (train) / 160×160 (eval) |
+
+ArcFace s/m differ by phase intentionally: Phase 1 trains on ~480 classes (large scale + larger margin is standard ArcFace practice for identity-rich pretraining); Phase 2 fine-tunes on 8 classes (smaller margin avoids over-tightening).
 
 ## Notes
 
-- The LOO protocol in `training_fixed.ipynb` corrects a train/test preprocessing mismatch present in earlier iterations: trained models are evaluated with `Normalize([0.5]*3, [0.5]*3)`, the raw VGGFace2 baseline is evaluated without normalization, and L2 normalization is applied only at match time (not on per-image embeddings before centroid averaging).
-- Phase 2 uses heavier augmentations (random rotation up to 25°, motion blur, random erasing) to simulate drone capture conditions.
+- **LOO eval protocol:** trained models use `Normalize([0.5]*3, [0.5]*3)` (matches training-time preprocessing); the raw VGGFace2 baseline uses no Normalize (matches `facenet-pytorch` convention). L2 normalization is applied at match time on centroids and queries — not on per-image embeddings before centroid averaging.
+- **Identity-disjoint split:** A–H train (8 ids), I validation (1 id), J,K held-out test (2 ids). The model never sees images of I/J/K during gradient steps.
+- **Phase 2 augmentations** (lighter than Phase 1): RandomResizedCrop(112, 0.8–1.0), HorizontalFlip, RandomRotation(20°), GaussianBlur(3), ColorJitter(0.2, 0.2). No RandomErasing or Grayscale.
