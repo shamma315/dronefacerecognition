@@ -1,17 +1,29 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
+
+# Core deep-learning stack
 torch==2.4.1
 torchvision==0.19.1
-facenet-pytorch==2.5.3
+facenet-pytorch==2.5.3        # InceptionResnetV1 backbone (Phase 1/2 + raw baseline)
 numpy<2.0
 pandas
 matplotlib
 scikit-learn
 pillow
 tqdm
+
+# Notebook / Jupyter tooling
 ipykernel
 jupyter
 nbformat
-diffusers==0.31.0
-transformers==4.46.2
+
+# Synthetic-identity pipeline (scripts/generate_synthetic_identities_faceid.py)
+diffusers==0.31.0             # Stable Diffusion 1.5 wrapper
+transformers==4.46.2          # CLIP text encoder used by SD
 accelerate==1.1.1
 safetensors
+huggingface_hub               # downloads IP-Adapter FaceID weights
+insightface                   # buffalo_l face embedding for IP-Adapter conditioning
+
+# Reference recognizer benchmarks (scripts/benchmark_recognizers.py)
+opencv-contrib-python         # cv2.face.LBPHFaceRecognizer_create
+onnxruntime                   # MobileFaceNet, ArcFace-R50/R100, SFace ONNX inference
