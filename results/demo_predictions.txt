@@ -1,0 +1,31 @@
+a_gp_4_ef_18.jpg  (alt=4.0m dist=8m)
+  true=A  pred=A  CORRECT
+  top-3: A (0.7468), H (0.0841), F (0.0820)
+
+f_gp_3_ef_18.jpg  (alt=3.0m dist=8m)
+  true=F  pred=F  CORRECT
+  top-3: F (0.9146), I (0.7183), H (0.6839)
+
+h_gp_5_ef_02.jpg  (alt=5.0m dist=16m)
+  true=H  pred=H  CORRECT
+  top-3: H (0.6807), I (0.6800), F (0.6566)
+
+i_gp_4_ef_18.jpg  (alt=4.0m dist=8m)
+  true=I  pred=I  CORRECT
+  top-3: I (0.9110), F (0.8781), H (0.6813)
+
+j_gp_0_ef_18.jpg  (alt=1.5m dist=8m)
+  true=J  pred=J  CORRECT
+  top-3: J (0.5185), K (0.4349), C (0.2826)
+
+k_gp_5_ef_14.jpg  (alt=5.0m dist=10m)
+  true=K  pred=B  INCORRECT
+  top-3: B (0.7640), K (0.7287), J (0.4409)
+
+a_gp_0_ef_30.jpg  (alt=1.5m dist=2m)
+  true=A  pred=A  CORRECT
+  top-3: A (0.5999), H (0.5915), I (0.5203)
+
+k_gp_4_ef_02.jpg  (alt=4.0m dist=16m)
+  true=K  pred=K  CORRECT
+  top-3: K (0.6786), G (0.6345), J (0.6222)

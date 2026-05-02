@@ -2,7 +2,9 @@
 
 Face recognition for drone-captured imagery using a two-phase training pipeline on top of a VGGFace2-pretrained InceptionResnetV1 backbone, an ArcFace head, and an optional synthetic-identity augmentation step.
 
-**Headline result:** the proposed two-phase pipeline reaches **82.11% Rank-1 / 97.73% Rank-5** on DroneFace under leave-one-out cosine-centroid matching, beating the raw VGGFace2 backbone (78.37% / 96.19%) by **+3.74 pp R-1**.
+**Headline result:** the proposed two-phase pipeline reaches **82.48% Rank-1 / 97.58% Rank-5** on DroneFace under leave-one-out cosine-centroid matching, beating the raw VGGFace2 backbone (78.37% / 96.19%) by **+4.11 pp R-1**.
+
+A self-contained demo with sample inputs and outputs lives at `notebooks/demo.ipynb` — open it for an inline visualization of the model's predictions on 8 hand-curated DroneFace queries.
 
 ## Pipeline
 
@@ -23,7 +25,8 @@ The 7-row ablation matrix is documented in `results/two_phase_ablation.csv` and 
 │   └── model.py                        Embeddinghead + ArcFaceLoss
 ├── notebooks/
 │   ├── training_v2.ipynb               Reproducible orchestrator — calls every script in order
-│   └── analysis_extensions.ipynb       t-SNE / per-identity / failure-case figures
+│   ├── analysis_extensions.ipynb       t-SNE / per-identity / failure-case figures
+│   └── demo.ipynb                      Sample-input + sample-output demo (run end-to-end in ~3 s)
 ├── scripts/                          Standalone training + eval scripts (idempotent: skip if output exists, --force to rerun)
 │   ├── generate_synthetic_identities_faceid.py    30 synthetic identities × 40 imgs (IP-Adapter FaceID)
 │   ├── phase1_original.py                         Phase 1 on VGGFace2, no synth          → best_model.pth
@@ -44,7 +47,9 @@ The 7-row ablation matrix is documented in `results/two_phase_ablation.csv` and 
 │   ├── cache/                          raw VGGFace2 baseline embeddings (for t-SNE comparison)
 │   ├── training_curves/                Per-epoch metrics + PNGs (Figure 2 source)
 │   ├── analysis/                       t-SNE / per-identity / failure-case figures (Figs 3, 5, 6)
-│   └── benchmarks/                     Reference recognizer comparison tables (Tables 2, 4–6)
+│   ├── benchmarks/                     Reference recognizer comparison tables (Tables 2, 4–6)
+│   ├── demo_predictions.png            Demo figure — 8 sample inputs with top-3 predictions
+│   └── demo_predictions.txt            Demo text summary (true / predicted / ✓ ✗ for each sample)
 ├── synthetic_identities/             30 IP-Adapter FaceID identities (gitignored)
 ├── datasets/                         DroneFace + VGGFace2 (gitignored)
 ├── requirements.txt
@@ -70,6 +75,19 @@ Required directories (gitignored):
 - (auto-generated) `synthetic_identities/identity_NNN/{anchor.jpg, img_001..040.jpg, anchor_embed.npy}`
 
 ## Usage
+
+### Demo (sample inputs and outputs)
+
+```bash
+jupyter lab
+# open notebooks/demo.ipynb and run all cells (~3 s)
+```
+
+Loads the headline `best_drone_model_v2.pth` checkpoint, runs inference on 8 hand-curated DroneFace queries spanning easy/hard identities, the validation identity (I), the held-out identities (J, K), and the hardest altitudes/distances. Produces:
+
+- inline image-with-prediction visualizations for each sample
+- `results/demo_predictions.png` — composite figure
+- `results/demo_predictions.txt` — text summary (`true=X  pred=Y  CORRECT/INCORRECT  top-3: ...`)
 
 ### Reproducible end-to-end run
 
@@ -115,6 +133,7 @@ Scripts hard-code the project root via the `ROOT` constant — adjust if running
 | `results/benchmarks/{droneface_main,cross_dataset,per_distance,per_gender,per_altitude}.csv` | Reference-recognizer comparison + Ours rows |
 | `results/training_curves/phase2_per_epoch_metrics.csv` + PNGs | Phase 2 per-epoch curves (Figure 2 source) |
 | `results/analysis/*.png` | t-SNE, confusion matrix, ROC, per-identity bars, top-10 failures |
+| `results/demo_predictions.{png,txt}` | Demo outputs (sample inputs + model predictions) — see `notebooks/demo.ipynb` |
 
 ## Hyperparameters at a glance
 
