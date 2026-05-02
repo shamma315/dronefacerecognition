@@ -36,6 +36,7 @@ The 7-row ablation matrix is documented in `results/two_phase_ablation.csv` and 
 │   ├── both_phases_original.py                    Phase 2 from Phase 1 (no synth)        → best_drone_model_v2.pth         [headline]
 │   ├── phase2_from_synth.py                       Phase 2 from Phase 1 with synth        → best_drone_model_synth_v2.pth
 │   ├── run_ablation_eval.py                       LOO eval over all 7 configs            → results/two_phase_ablation.csv
+│   ├── plot_training_curves.py                    Regenerate Phase 1 + Phase 2 PNGs from per-epoch CSVs
 │   ├── benchmark_recognizers.py                   Reference recognizers (LBPH, SFace, MobileFaceNet, FaceNet ×2, ArcFace ×2)
 │   └── run_all_benchmarks.py                      Sweep harness for benchmark_recognizers.py
 ├── checkpoints/checkpoints/          Trained checkpoints (.pth, gitignored)
