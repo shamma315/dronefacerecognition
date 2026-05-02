@@ -247,8 +247,8 @@ The Phase 1 / Phase 2 training scripts, the synthetic-identity orchestration, th
 
 ## Author contributions
 
-- **Shamma Yaqoob** — project initiator; foundational pipeline (dataset preprocessing, identity-disjoint split, original two-phase training notebook, LOO eval helper); extended analysis (`notebooks/analysis_extensions.ipynb` → Figures 3–6); GitHub repository hosting and coordination.
+- **Shamma Yaqoob** — project initiator; foundational pipeline (dataset preprocessing, identity-disjoint split, original two-phase training notebook); extended analysis (`notebooks/analysis_extensions.ipynb` → Figures 3–6); GitHub repository hosting and coordination.
 - **Buthaina Almulla** — pipeline refinement into the 7-config 2×3 ablation matrix; v2 hyperparameter tuning that produced the 82.48% headline; synthetic-identity pipeline runs; LOO ablation evaluator; orchestrator notebook; demo notebook; README and methodology documentation.
-- **Alyaa Alghfeli** — reference recognizer benchmark suite (`scripts/benchmark_recognizers.py` + `run_all_benchmarks.py`); the comparative tables (`results/benchmarks/*.csv`) anchoring §6.1 (Table 2), §6.3 (Table 4), §6.4 (Tables 5, 6).
+- **Alyaa Alghfeli** — reference recognizer benchmark suite (`scripts/benchmark_recognizers.py` + `run_all_benchmarks.py`); the comparative tables (`results/benchmarks/*.csv`) anchoring §6.1 (Table 2), §6.3 (Table 4), §6.4 (Tables 5, 6), LOO eval helper.
 
 Report writing and methodology decisions (per-phase ArcFace `s/m`, LOO protocol, headline framing) are joint across the three authors.
